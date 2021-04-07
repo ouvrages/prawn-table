@@ -76,6 +76,8 @@ module Prawn
   #   Either :left (the default), :center, :right, or a number. Specifies the
   #   horizontal position of the table within its bounding box. If a number is
   #   provided, it specifies the distance in points from the left edge.
+  # +repeat_first_column_content_on_new_page+::
+  #  If set to +true+, the content of first column is repeated on every page.
   #
   # = Initializer Block
   #
@@ -99,7 +101,7 @@ module Prawn
   #   end
   #
   class Table
-    module Interface 
+    module Interface
       # @group Experimental API
 
       # Set up and draw a table on this document. A block can be given, which will
@@ -138,6 +140,7 @@ module Prawn
       @pdf = document
       @cells = make_cells(data)
       @header = false
+      @repeat_first_column_content_on_new_page = false
       options.each { |k, v| send("#{k}=", v) }
 
       if block
@@ -221,7 +224,7 @@ module Prawn
     # as a header Does not change row numbering -- row numbers always index
     # into the data array provided, with no modification.
     #
-    attr_writer :header
+    attr_writer :header, :repeat_first_column_content_on_new_page
 
     # Accepts an Array of alternating row colors to stripe the table.
     #
@@ -291,11 +294,22 @@ module Prawn
         cells_this_page = []
 
         @cells.each do |cell|
-          if start_new_page?(cell, offset, ref_bounds) 
+          if start_new_page?(cell, offset, ref_bounds)
             # draw cells on the current page and then start a new one
             # this will also add a header to the new page if a header is set
             # reset array of cells for the new page
             cells_this_page, offset = ink_and_draw_cells_and_start_new_page(cells_this_page, cell)
+
+            if @repeat_first_column_content_on_new_page
+              content = nil
+              index = 0
+              loop do
+                content = @cells[cell.row - index, cell.column]&.content
+                index += 1
+                break if content.present?
+              end
+              cell.content = content
+            end
 
             # remember the current row for background coloring
             started_new_page_at_row = cell.row
@@ -381,7 +395,7 @@ module Prawn
     end
 
     protected
-    
+
     # sets the background color (if necessary) for the given cell
     def set_background_color(cell, started_new_page_at_row)
       if defined?(@row_colors) && @row_colors && (!@header || cell.row > 0)
@@ -429,9 +443,9 @@ module Prawn
     def ink_and_draw_cells_and_start_new_page(cells_this_page, cell)
       # don't draw only a header
       draw_cells = (@header_row.nil? || cells_this_page.size > @header_row.size)
-      
+
       ink_and_draw_cells(cells_this_page, draw_cells)
-      
+
       # start a new page or column
       @pdf.bounds.move_past_bottom
 
@@ -576,7 +590,7 @@ module Prawn
         number_of_header_rows.times do |h|
           additional_header_height = add_one_header_row(cells_this_page, x_offset, y_coord-header_height, row_number-1, h)
           header_height += additional_header_height
-        end        
+        end
       end
       header_height
     end
@@ -593,7 +607,7 @@ module Prawn
       rows_to_operate_on = @header_row.rows(row_of_header) if row_of_header
       rows_to_operate_on.each do |cell|
         cell.row = row
-        cell.dummy_cells.each {|c| 
+        cell.dummy_cells.each {|c|
           if cell.rowspan > 1
             # be sure to account for cells that span multiple rows
             # in this case you need multiple row numbers
